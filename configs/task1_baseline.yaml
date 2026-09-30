@@ -1,0 +1,15 @@
+# Task 1 baseline (hand-picked starting point BEFORE Optuna). alpha = 0.8 is the assignment's suggested
+# initial value; the final alpha will come from the Optuna study in Phase 4.
+base_channels: 64
+bottleneck_dim: 256
+dropout: 0.1
+lr: 0.001
+weight_decay: 0.0001
+batch_size: 32
+alpha: 0.8
+epochs: 40
+patience: 10
+num_workers: 2
+amp: true
+seed: 42
+sample_every: 5

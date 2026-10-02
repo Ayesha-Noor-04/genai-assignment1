@@ -1,5 +1,4 @@
 import json
-import re
 from pathlib import Path
 
 from PIL import Image
@@ -8,18 +7,7 @@ from torchvision import transforms
 
 
 class FS2KDataset(Dataset):
-    """
-    FS2K paired photo-to-sketch dataset.
-
-    Each annotation contains an image_name such as:
-        photo1/image0110
-
-    and a style value:
-        0, 1, or 2
-
-    The corresponding sketch is selected from:
-        sketch1, sketch2, or sketch3
-    """
+    """FS2K paired photo-to-sketch dataset."""
 
     def __init__(
         self,
@@ -52,17 +40,16 @@ class FS2KDataset(Dataset):
             ),
         ])
 
-        self.sketch_transform = transforms.Compose([
-            transforms.Resize(
-                (image_size, image_size),
-                antialias=True,
-            ),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=(0.5, 0.5, 0.5),
-                std=(0.5, 0.5, 0.5),
-            ),
-        ])
+        # Build a lookup from sketch ID to its actual file.
+        #
+        # Example:
+        # sketch0110 -> sketch/sketch1/sketch0110.jpg
+        #
+        # We do NOT infer the folder from the style label.
+        self.sketch_lookup = {}
+
+        for sketch_path in (self.root / "sketch").rglob("*.jpg"):
+            self.sketch_lookup[sketch_path.stem] = sketch_path
 
     def __len__(self):
         return len(self.annotations)
@@ -70,50 +57,31 @@ class FS2KDataset(Dataset):
     @staticmethod
     def _get_image_id(image_name):
         """
-        Convert:
-            photo1/image0110
-        into:
-            image0110
+        photo1/image0110 -> image0110
         """
         return Path(image_name).name
 
-    @staticmethod
-    def _style_to_sketch_folder(style):
-        """
-        FS2K styles:
-            0 -> sketch1
-            1 -> sketch2
-            2 -> sketch3
-        """
-        style = int(style)
-
-        if style not in {0, 1, 2}:
-            raise ValueError(f"Invalid FS2K style: {style}")
-
-        return f"sketch{style + 1}"
-
     def _get_paths(self, annotation):
         image_name = annotation["image_name"]
-        style = int(annotation["style"])
 
         # Photo:
         # photo1/image0110
-        # -> photo/photo1/image0110.jpg
+        # ->
+        # photo/photo1/image0110.jpg
         photo_path = self.root / "photo" / f"{image_name}.jpg"
 
         image_id = self._get_image_id(image_name)
 
-        # image0110 -> sketch0110.jpg
-        sketch_name = image_id.replace("image", "sketch") + ".jpg"
+        # image0110 -> sketch0110
+        sketch_id = image_id.replace("image", "sketch")
 
-        sketch_folder = self._style_to_sketch_folder(style)
+        if sketch_id not in self.sketch_lookup:
+            raise FileNotFoundError(
+                f"No sketch found for {image_name} "
+                f"(expected ID: {sketch_id})"
+            )
 
-        sketch_path = (
-            self.root
-            / "sketch"
-            / sketch_folder
-            / sketch_name
-        )
+        sketch_path = self.sketch_lookup[sketch_id]
 
         return photo_path, sketch_path
 
@@ -127,16 +95,11 @@ class FS2KDataset(Dataset):
                 f"Photo not found: {photo_path}"
             )
 
-        if not sketch_path.exists():
-            raise FileNotFoundError(
-                f"Sketch not found: {sketch_path}"
-            )
-
         photo = Image.open(photo_path).convert("RGB")
         sketch = Image.open(sketch_path).convert("RGB")
 
         photo = self.transform(photo)
-        sketch = self.sketch_transform(sketch)
+        sketch = self.transform(sketch)
 
         style = int(annotation["style"])
 

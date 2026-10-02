@@ -1,13 +1,23 @@
-"""PyTorch datasets for Tasks 1-3.
+"""Fixed (deterministic) corruption manifests for validation and test.
 
-  RuntimeCorruptionDataset : training. Every __getitem__ call draws a NEW corruption type and
-                             severity (nothing corrupted is ever saved to disk).
-  ManifestDataset          : validation / test. Deterministic, driven by a stored manifest.
+Assignment requirement: "Generate a validation corruption manifest and a test corruption manifest
+once and store the corruption type, severity, mask coordinates, blur settings, and random seed
+associated with every image."
 
-Both return (corrupted, clean, label):
-    corrupted : float32 tensor [3,128,128] in [0,1]
-    clean     : float32 tensor [3,128,128] in [0,1]   (the reconstruction target)
-    label     : int64 scalar, index in corruptions.CLASSES (used by the Task 2/3 classifier)
+Validation manifest : one entry per validation image; condition sampled ONCE from the training
+                      distribution with a fixed seed (severity = nearest test level, for reporting).
+Test manifest       : per test image -> clean + 3 severities x 3 corruptions = 10 entries.
+                      salt_pepper p = 0.03 / 0.08 / 0.15
+                      blur (kernel, sigma) = (3, 0.7) / (5, 1.5) / (7, 2.5)
+                      occlusion = 1 / 2 / 3 rectangles covering ~10% / 20% / 35%
+
+Each entry (a plain dict, JSON-serialisable):
+    {"image_idx": int,        # index into the corresponding image array
+     "corruption": "clean" | "salt_pepper" | "blur" | "occlusion",
+     "label": 0..3,           # index in corruptions.CLASSES
+     "severity": "none" | "low" | "medium" | "high",
+     "params": {...},         # p | kernel, sigma | rects, coverage
+     "seed": int}             # drives salt-and-pepper noise; stored for every entry
 """
 from __future__ import annotations
 
@@ -15,89 +25,65 @@ import json
 from pathlib import Path
 
 import numpy as np
-import torch
-from torch.utils.data import Dataset
 
 from . import corruptions as C
-from .manifest import apply_entry, load_manifest
+
+MANIFEST_SEED = 42
 
 
-def load_arrays(processed_dir):
-    """Returns (trainval uint8 [N,128,128,3], test uint8 [M,128,128,3], split dict)."""
-    d = Path(processed_dir)
-    trainval = np.load(d / "trainval_128.npy")
-    test = np.load(d / "test_128.npy")
-    with open(d / "split.json") as f:
-        split = json.load(f)
-    return trainval, test, split
+def _entry(image_idx, corruption, severity, params, seed):
+    return {
+        "image_idx": int(image_idx),
+        "corruption": corruption,
+        "label": C.CLASS_TO_ID[corruption],
+        "severity": severity,
+        "params": params,
+        "seed": int(seed),
+    }
 
 
-def to_tensor(img_uint8: np.ndarray) -> torch.Tensor:
-    return torch.from_numpy(img_uint8).permute(2, 0, 1).float().div_(255.0)
+def build_val_manifest(val_image_indices, seed: int = MANIFEST_SEED):
+    """`val_image_indices`: indices (into trainval_128.npy) of the validation images."""
+    rng = np.random.default_rng([seed, 1])
+    entries = []
+    for idx in val_image_indices:
+        name, params, s = C.sample_corruption(rng)
+        entries.append(_entry(idx, name, C.severity_of(name, params), params, s))
+    return entries
 
 
-class RuntimeCorruptionDataset(Dataset):
-    """Training dataset with on-the-fly corruption.
-
-    images : uint8 array [N,128,128,3] (the full trainval array)
-    indices: which rows of `images` belong to this split (the 80% training indices)
-    corruption: None -> each load picks clean / salt_pepper / blur / occlusion with equal
-                probability (Task 1). Pass a name to force one type (e.g. to train a Task 2
-                specialist, or to build class-balanced batches).
-    """
-
-    def __init__(self, images, indices, corruption: str | None = None, seed: int = 42, hflip: bool = False):
-        self.images = images
-        self.indices = np.asarray(indices)
-        self.corruption = corruption
-        self.seed = seed
-        self.hflip = hflip
-        self._rng = None
-        self._rng_pid = None
-
-    def __len__(self):
-        return len(self.indices)
-
-    def _get_rng(self):
-        # One generator per worker process. torch.initial_seed() differs per worker (and per epoch
-        # unless persistent_workers=True, where the generator simply keeps advancing), so every
-        # load of an image gets a fresh corruption.
-        import os
-        pid = os.getpid()
-        if self._rng is None or self._rng_pid != pid:
-            self._rng = np.random.default_rng([self.seed, torch.initial_seed() % (2**32)])
-            self._rng_pid = pid
-        return self._rng
-
-    def __getitem__(self, i):
-        clean = self.images[self.indices[i]]
-        rng = self._get_rng()
-        if self.hflip and rng.random() < 0.5:  # flip the CLEAN target; the corruption is applied afterwards
-            clean = np.ascontiguousarray(clean[:, ::-1])
-        name, params, seed = C.sample_corruption(rng, self.corruption)
-        corrupted = C.apply_corruption(clean, name, params, seed)
-        return to_tensor(corrupted), to_tensor(clean), C.CLASS_TO_ID[name]
+def build_test_manifest(n_test_images: int, seed: int = MANIFEST_SEED):
+    """10 entries per test image: clean + {salt_pepper, blur, occlusion} x {low, medium, high}."""
+    rng = np.random.default_rng([seed, 2])
+    entries = []
+    for idx in range(n_test_images):
+        entries.append(_entry(idx, "clean", "none", {}, rng.integers(0, 2**31 - 1)))
+        for sev in C.SEVERITIES:
+            entries.append(_entry(idx, "salt_pepper", sev, {"p": C.TEST_SP_P[sev]},
+                                  rng.integers(0, 2**31 - 1)))
+        for sev in C.SEVERITIES:
+            k, sigma = C.TEST_BLUR[sev]
+            entries.append(_entry(idx, "blur", sev, {"kernel": k, "sigma": sigma},
+                                  rng.integers(0, 2**31 - 1)))
+        for sev in C.SEVERITIES:
+            n, cov = C.TEST_OCC[sev]
+            params = C.sample_occlusion_fixed(rng, n, cov)
+            entries.append(_entry(idx, "occlusion", sev, params, rng.integers(0, 2**31 - 1)))
+    return entries
 
 
-class ManifestDataset(Dataset):
-    """Deterministic dataset defined by a manifest (validation or test).
+def apply_entry(clean_img: np.ndarray, entry: dict) -> np.ndarray:
+    """Deterministically corrupt a clean uint8 [H,W,3] image according to a manifest entry."""
+    return C.apply_corruption(clean_img, entry["corruption"], entry["params"], entry["seed"])
 
-    images  : uint8 array the manifest's `image_idx` values index into
-              (trainval array for the validation manifest, test array for the test manifest)
-    manifest: list of entries (see manifest.py) or a path to a manifest JSON
-    """
 
-    def __init__(self, images, manifest):
-        self.images = images
-        self.entries = load_manifest(manifest) if isinstance(manifest, (str, Path)) else manifest
+def save_manifest(entries, path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w") as f:
+        json.dump({"seed": MANIFEST_SEED, "n_entries": len(entries), "entries": entries}, f)
 
-    def __len__(self):
-        return len(self.entries)
 
-    def __getitem__(self, i):
-        e = self.entries[i]
-        clean = self.images[e["image_idx"]]
-        return to_tensor(apply_entry(clean, e)), to_tensor(clean), e["label"]
-
-    def entry(self, i):
-        return self.entries[i]
+def load_manifest(path):
+    with open(path) as f:
+        return json.load(f)["entries"]

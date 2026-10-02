@@ -46,11 +46,12 @@ class RuntimeCorruptionDataset(Dataset):
                 specialist, or to build class-balanced batches).
     """
 
-    def __init__(self, images, indices, corruption: str | None = None, seed: int = 42):
+    def __init__(self, images, indices, corruption: str | None = None, seed: int = 42, hflip: bool = False):
         self.images = images
         self.indices = np.asarray(indices)
         self.corruption = corruption
         self.seed = seed
+        self.hflip = hflip
         self._rng = None
         self._rng_pid = None
 
@@ -70,7 +71,10 @@ class RuntimeCorruptionDataset(Dataset):
 
     def __getitem__(self, i):
         clean = self.images[self.indices[i]]
-        name, params, seed = C.sample_corruption(self._get_rng(), self.corruption)
+        rng = self._get_rng()
+        if self.hflip and rng.random() < 0.5:  # flip the CLEAN target; the corruption is applied afterwards
+            clean = np.ascontiguousarray(clean[:, ::-1])
+        name, params, seed = C.sample_corruption(rng, self.corruption)
         corrupted = C.apply_corruption(clean, name, params, seed)
         return to_tensor(corrupted), to_tensor(clean), C.CLASS_TO_ID[name]
 

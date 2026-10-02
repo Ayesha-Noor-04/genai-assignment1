@@ -5,8 +5,8 @@ from pathlib import Path
 import numpy as np
 import torch
 import torch.nn as nn
-from torch.cuda.amp import GradScaler, autocast
 from torch.utils.data import DataLoader
+from torchvision.utils import save_image
 
 from .dataset import FS2KDataset
 from .models import (
@@ -38,10 +38,7 @@ def save_samples(generator, batch, output_dir, epoch, device):
 
         fake = generator(photo, style)
 
-        # Save the first generated sketch.
         image = denormalize(fake[0]).clamp(0, 1)
-
-        from torchvision.utils import save_image
 
         save_image(
             image,
@@ -70,18 +67,37 @@ def train_one_epoch(
     total_g = 0.0
     total_d = 0.0
 
+    use_amp = device.type == "cuda"
+
     for batch in loader:
-        photo = batch["photo"].to(device, non_blocking=True)
-        real_sketch = batch["sketch"].to(device, non_blocking=True)
-        style = batch["style"].to(device, non_blocking=True)
+        photo = batch["photo"].to(
+            device,
+            non_blocking=True,
+        )
+
+        real_sketch = batch["sketch"].to(
+            device,
+            non_blocking=True,
+        )
+
+        style = batch["style"].to(
+            device,
+            non_blocking=True,
+        )
 
         # --------------------------------------------------
         # Train discriminator
         # --------------------------------------------------
         optimizer_d.zero_grad(set_to_none=True)
 
-        with autocast(enabled=device.type == "cuda"):
-            fake_sketch = generator(photo, style)
+        with torch.amp.autocast(
+            device_type="cuda",
+            enabled=use_amp,
+        ):
+            fake_sketch = generator(
+                photo,
+                style,
+            )
 
             real_pred = discriminator(
                 photo,
@@ -108,7 +124,9 @@ def train_one_epoch(
                 fake_target,
             )
 
-            loss_d = 0.5 * (loss_d_real + loss_d_fake)
+            loss_d = 0.5 * (
+                loss_d_real + loss_d_fake
+            )
 
         scaler_d.scale(loss_d).backward()
         scaler_d.step(optimizer_d)
@@ -119,8 +137,14 @@ def train_one_epoch(
         # --------------------------------------------------
         optimizer_g.zero_grad(set_to_none=True)
 
-        with autocast(enabled=device.type == "cuda"):
-            fake_sketch = generator(photo, style)
+        with torch.amp.autocast(
+            device_type="cuda",
+            enabled=use_amp,
+        ):
+            fake_sketch = generator(
+                photo,
+                style,
+            )
 
             fake_pred = discriminator(
                 photo,
@@ -140,7 +164,10 @@ def train_one_epoch(
                 real_sketch,
             )
 
-            loss_g = loss_g_adv + lambda_l1 * loss_g_l1
+            loss_g = (
+                loss_g_adv
+                + lambda_l1 * loss_g_l1
+            )
 
         scaler_g.scale(loss_g).backward()
         scaler_g.step(optimizer_g)
@@ -159,13 +186,17 @@ def main(args):
     set_seed(args.seed)
 
     device = torch.device(
-        "cuda" if torch.cuda.is_available() else "cpu"
+        "cuda"
+        if torch.cuda.is_available()
+        else "cpu"
     )
 
     print(f"Device: {device}")
 
     if device.type == "cuda":
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
+        print(
+            f"GPU: {torch.cuda.get_device_name(0)}"
+        )
 
     dataset = FS2KDataset(
         root=args.data_root,
@@ -183,9 +214,14 @@ def main(args):
     )
 
     generator = ConditionalGenerator().to(device)
-    discriminator = ConditionalPatchGANDiscriminator().to(device)
+
+    discriminator = (
+        ConditionalPatchGANDiscriminator()
+        .to(device)
+    )
 
     adversarial_loss = nn.BCEWithLogitsLoss()
+
     reconstruction_loss = nn.L1Loss()
 
     optimizer_g = torch.optim.Adam(
@@ -200,17 +236,27 @@ def main(args):
         betas=(0.5, 0.999),
     )
 
-    scaler_g = GradScaler(
-        enabled=device.type == "cuda"
+    use_amp = device.type == "cuda"
+
+    scaler_g = torch.amp.GradScaler(
+        "cuda",
+        enabled=use_amp,
     )
 
-    scaler_d = GradScaler(
-        enabled=device.type == "cuda"
+    scaler_d = torch.amp.GradScaler(
+        "cuda",
+        enabled=use_amp,
     )
 
     output_dir = Path(args.output_dir)
-    checkpoint_dir = output_dir / "checkpoints"
-    sample_dir = output_dir / "samples"
+
+    checkpoint_dir = (
+        output_dir / "checkpoints"
+    )
+
+    sample_dir = (
+        output_dir / "samples"
+    )
 
     checkpoint_dir.mkdir(
         parents=True,
@@ -224,7 +270,10 @@ def main(args):
 
     fixed_batch = next(iter(loader))
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(
+        1,
+        args.epochs + 1,
+    ):
         loss_g, loss_d = train_one_epoch(
             generator=generator,
             discriminator=discriminator,
@@ -264,7 +313,8 @@ def main(args):
 
         torch.save(
             checkpoint,
-            checkpoint_dir / f"epoch_{epoch:03d}.pt",
+            checkpoint_dir
+            / f"epoch_{epoch:03d}.pt",
         )
 
 

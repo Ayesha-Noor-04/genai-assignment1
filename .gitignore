@@ -5,3 +5,5 @@ mlruns/
 *.onnx
 __pycache__/
 .venv/
+# Task 4 generated outputs
+task4/outputs/

@@ -1,3 +1,4 @@
+
 import json
 from pathlib import Path
 
@@ -40,16 +41,29 @@ class FS2KDataset(Dataset):
             ),
         ])
 
-        # Build a lookup from sketch ID to its actual file.
+        # Build a lookup of all photos by filename stem.
         #
-        # Example:
-        # sketch0110 -> sketch/sketch1/sketch0110.jpg
+        # This handles both:
+        #   image0449.jpg
+        #   image0449.JPG
         #
-        # We do NOT infer the folder from the style label.
+        # without assuming an extension.
+        self.photo_lookup = {}
+
+        for photo_path in (self.root / "photo").rglob("*"):
+            if photo_path.is_file():
+                self.photo_lookup[photo_path.stem] = photo_path
+
+        # Build a lookup of all sketches by filename stem.
+        #
+        # We intentionally do NOT infer the sketch folder from
+        # the style label. The FS2K annotations use "style" as
+        # the style condition, not as a folder identifier.
         self.sketch_lookup = {}
 
-        for sketch_path in (self.root / "sketch").rglob("*.jpg"):
-            self.sketch_lookup[sketch_path.stem] = sketch_path
+        for sketch_path in (self.root / "sketch").rglob("*"):
+            if sketch_path.is_file():
+                self.sketch_lookup[sketch_path.stem] = sketch_path
 
     def __len__(self):
         return len(self.annotations)
@@ -57,27 +71,50 @@ class FS2KDataset(Dataset):
     @staticmethod
     def _get_image_id(image_name):
         """
-        photo1/image0110 -> image0110
+        Convert:
+
+            photo1/image0110
+
+        into:
+
+            image0110
         """
         return Path(image_name).name
 
     def _get_paths(self, annotation):
         image_name = annotation["image_name"]
 
-        # Photo:
-        # photo1/image0110
-        # ->
-        # photo/photo1/image0110.jpg
-        photo_path = self.root / "photo" / f"{image_name}.jpg"
-
+        # --------------------------------------------------
+        # Find photo by filename stem.
+        #
+        # Example:
+        # photo3/image0449
+        #
+        # can resolve to:
+        # photo/photo3/image0449.JPG
+        # --------------------------------------------------
         image_id = self._get_image_id(image_name)
 
+        if image_id not in self.photo_lookup:
+            raise FileNotFoundError(
+                f"Photo not found for {image_name}"
+            )
+
+        photo_path = self.photo_lookup[image_id]
+
+        # --------------------------------------------------
+        # Find sketch using the shared numeric ID.
+        #
         # image0110 -> sketch0110
+        #
+        # We do NOT use annotation["style"] to select
+        # sketch1/sketch2/sketch3.
+        # --------------------------------------------------
         sketch_id = image_id.replace("image", "sketch")
 
         if sketch_id not in self.sketch_lookup:
             raise FileNotFoundError(
-                f"No sketch found for {image_name} "
+                f"Sketch not found for {image_name} "
                 f"(expected ID: {sketch_id})"
             )
 
@@ -89,11 +126,6 @@ class FS2KDataset(Dataset):
         annotation = self.annotations[index]
 
         photo_path, sketch_path = self._get_paths(annotation)
-
-        if not photo_path.exists():
-            raise FileNotFoundError(
-                f"Photo not found: {photo_path}"
-            )
 
         photo = Image.open(photo_path).convert("RGB")
         sketch = Image.open(sketch_path).convert("RGB")

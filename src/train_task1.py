@@ -225,7 +225,8 @@ def train(cfg, trial=None):
             mlflow.log_artifact(str(run_dir / "val_summary.json"))
             if cfg["save_checkpoints"] and best_path.exists():
                 mlflow.log_artifact(str(best_path), artifact_path="checkpoint")
-        result = {"best_objective": summ["overall"]["objective"], "best_epoch": best_epoch,
+        # best_obj = best validation objective over all epochs (also correct when no checkpoint is kept)
+        result = {"best_objective": best_obj, "best_epoch": best_epoch,
                   "summary": summ, "run_dir": str(run_dir)}
     finally:
         if mlflow:

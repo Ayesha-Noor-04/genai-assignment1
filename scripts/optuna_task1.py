@@ -10,7 +10,7 @@ Colab:
   It does not use the test set and does not depend on alpha, so alpha can be tuned fairly.
 * MedianPruner stops clearly-bad trials early.
 * --space v1 : first study (vector bottleneck only).  --space v2 : second study after the diagnostic
-  (searches the bottleneck type/grid, wider latent and weight-decay ranges, horizontal flip ON).
+  (spatial bottleneck; searches grid size, latent values 1024-4096, wider weight-decay range; flip ON).
   The two studies live side by side (different study names, output folders and best-config files).
 
 Outputs under <root>/optuna/ : trials.csv, study_summary.json, 3 PNG plots; and <root>/task1_best.yaml
@@ -43,14 +43,14 @@ SPACE_V1 = {
 SPACE_V2 = {
     "lr": "log-uniform [1e-4, 3e-3]",
     "batch_size": "categorical {16, 32, 64}",
-    "latent": "categorical {vector, spatial}",
-    "latent_size": "categorical {8, 16}  (only if latent = spatial: latent grid size)",
-    "bottleneck_dim": "categorical {512, 1024, 2048, 4096}  (number of latent values)",
+    "latent_size": "categorical {8, 16}  (spatial latent grid: 8x8 or 16x16)",
+    "bottleneck_dim": "categorical {1024, 2048, 4096}  (number of latent values; compression >= 12x)",
     "base_channels": "categorical {32, 48, 64}",
     "dropout": "uniform [0.0, 0.5] (on the latent)",
     "alpha": "uniform [0.5, 0.95]  (L1 weight; SSIM weight = 1 - alpha)",
     "weight_decay": "log-uniform [1e-6, 1e-2]",
-    "(fixed)": "horizontal-flip augmentation of the clean training image = on",
+    "(fixed)": "latent = spatial (chosen by the architecture diagnostic: vector 17.8 dB vs spatial 20.7-23.7 dB), "
+               "horizontal-flip augmentation on",
 }
 SMOKE_SPACE_NOTE = "smoke mode: tiny model, 2 epochs - only for checking that the pipeline runs"
 
@@ -67,9 +67,9 @@ def suggest(trial, space="v1", smoke=False):
         p["bottleneck_dim"] = trial.suggest_categorical("bottleneck_dim", [128, 256, 512, 1024])
         p["weight_decay"] = trial.suggest_float("weight_decay", 1e-6, 1e-3, log=True)
     else:
-        p["latent"] = trial.suggest_categorical("latent", ["vector", "spatial"])
-        p["latent_size"] = trial.suggest_categorical("latent_size", [8, 16]) if p["latent"] == "spatial" else 8
-        p["bottleneck_dim"] = trial.suggest_categorical("bottleneck_dim", [512, 1024, 2048, 4096])
+        p["latent"] = "spatial"  # fixed after the diagnostic (see SPACE_V2)
+        p["latent_size"] = trial.suggest_categorical("latent_size", [8, 16])
+        p["bottleneck_dim"] = trial.suggest_categorical("bottleneck_dim", [1024, 2048, 4096])
         p["weight_decay"] = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
         p["hflip"] = True
     if smoke:  # keep CPU dry-runs fast; the sampled value is still recorded by Optuna
@@ -127,8 +127,7 @@ def report(study, args, out_dir):
     # best configuration -> yaml for the final run
     best_cfg = {k: best.params[k] for k in SPACE if k in best.params}
     if args.space == "v2":
-        best_cfg["hflip"] = True
-        best_cfg.setdefault("latent_size", 8)
+        best_cfg.update(latent="spatial", hflip=True)
     if args.smoke:
         best_cfg["base_channels"], best_cfg["batch_size"] = 8, 16
     best_cfg.update(epochs=60, patience=12, num_workers=2, amp=True, seed=42, sample_every=5)

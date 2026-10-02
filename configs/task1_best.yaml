@@ -1,0 +1,13 @@
+lr: 0.00022454970421743311
+batch_size: 16
+bottleneck_dim: 1024
+base_channels: 48
+dropout: 0.12764870911090787
+alpha: 0.5814417180485896
+weight_decay: 1.1788807705680751e-06
+epochs: 60
+patience: 12
+num_workers: 2
+amp: true
+seed: 42
+sample_every: 5

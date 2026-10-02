@@ -1,18 +1,28 @@
 """Task 1 model: Universal Denoising Autoencoder (UDAE).
 
-    x~ [3,128,128] -> conv encoder -> latent vector z (bottleneck_dim) -> conv decoder -> x^ [3,128,128]
+    x~ [3,128,128] -> conv encoder -> compressed latent z -> conv decoder -> x^ [3,128,128]
 
-* Encoder : 5 stages, each halves the spatial size (128 -> 64 -> 32 -> 16 -> 8 -> 4) while the
-            channel count grows (c, 2c, 4c, 8c, 8c). Each stage = strided 3x3 conv + 3x3 conv
-            (BatchNorm + ReLU after each).
-* Bottleneck: flatten (8c x 4 x 4) -> Linear -> z (bottleneck_dim) -> Dropout -> Linear -> reshape.
-            With bottleneck_dim = 256 the image (49,152 numbers) is squeezed through 256 numbers,
-            so the network cannot simply copy its input.
-* Decoder : 5 stages of (nearest-neighbour upsample x2 + 3x3 conv + 3x3 conv, BN + ReLU), mirroring
-            the encoder, then a 3x3 conv to 3 channels and a sigmoid (output in [0,1]).
-* NO skip connections of any kind between encoder and decoder.
+Two bottleneck variants (selected with `latent`), both with the SAME number of latent values
+(`bottleneck_dim`) so they are directly comparable:
 
-Upsample+conv (instead of transposed conv) is used in the decoder to avoid checkerboard artefacts.
+  latent="vector"  (first design)
+      encoder: 5 stages, 128 -> 64 -> 32 -> 16 -> 8 -> 4, channels (c, 2c, 4c, 8c, 8c)
+      bottleneck: flatten(8c x 4 x 4) -> Linear -> z in R^bottleneck_dim -> Dropout -> Linear -> reshape
+      Spatial layout is destroyed by the Linear layers; the decoder must regenerate everything
+      from one vector.
+
+  latent="spatial" (convolutional bottleneck), latent_size = 8 (default) or 16
+      encoder: 4 stages (8x8 grid): 128 -> 64 -> 32 -> 16 -> 8, channels (c, 2c, 4c, 8c)
+               3 stages (16x16 grid): 128 -> 64 -> 32 -> 16,    channels (c, 2c, 4c)
+      bottleneck: 1x1 conv -> z in R^{(bottleneck_dim/size^2) x size x size} -> Dropout -> 1x1 conv
+      Same compression (e.g. 1024 numbers for 49,152 pixel values) but the latent keeps a coarse
+      8x8 spatial grid, so positions of structures survive the bottleneck.
+
+Decoder (both): stages of (nearest-neighbour upsample x2 + 3x3 conv + 3x3 conv, BN + ReLU) mirroring
+the encoder, then a 3x3 conv to 3 channels and a sigmoid (output in [0,1]).
+
+There are NO skip connections between encoder and decoder: the decoder only ever sees z.
+Upsample+conv (not transposed conv) is used in the decoder to avoid checkerboard artefacts.
 """
 from __future__ import annotations
 
@@ -30,16 +40,22 @@ def conv_bn_relu(cin, cout, stride=1):
 
 class UDAE(nn.Module):
     def __init__(self, base_channels: int = 64, bottleneck_dim: int = 256, dropout: float = 0.1,
-                 in_size: int = 128, n_stages: int = 5):
+                 in_size: int = 128, latent: str = "vector", latent_size: int = 8):
         super().__init__()
+        assert latent in ("vector", "spatial")
+        self.latent_type = latent
+        if latent == "vector":
+            n_stages, mult = 5, [1, 2, 4, 8, 8]
+        else:  # spatial latent grid of latent_size x latent_size: 8 -> 4 stages, 16 -> 3 stages
+            assert latent_size in (8, 16)
+            n_stages = {8: 4, 16: 3}[latent_size]
+            mult = [1, 2, 4, 8][:n_stages]
         assert in_size % (2 ** n_stages) == 0
-        mult = [1, 2, 4, 8, 8][:n_stages]
         chans = [base_channels * m for m in mult]
         self.chans = chans
         self.bottleneck_dim = bottleneck_dim
-        self.final_size = in_size // (2 ** n_stages)  # 4
+        self.final_size = in_size // (2 ** n_stages)  # 4 (vector) or 8 (spatial)
         self.final_ch = chans[-1]
-        flat = self.final_ch * self.final_size ** 2
 
         # ---- encoder ----
         enc, cin = [], 3
@@ -49,9 +65,17 @@ class UDAE(nn.Module):
         self.encoder = nn.Sequential(*enc)
 
         # ---- bottleneck ----
-        self.to_latent = nn.Sequential(nn.Flatten(), nn.Linear(flat, bottleneck_dim))
         self.latent_dropout = nn.Dropout(dropout)
-        self.from_latent = nn.Sequential(nn.Linear(bottleneck_dim, flat), nn.ReLU(inplace=True))
+        if latent == "vector":
+            flat = self.final_ch * self.final_size ** 2
+            self.to_latent = nn.Sequential(nn.Flatten(), nn.Linear(flat, bottleneck_dim))
+            self.from_latent = nn.Sequential(nn.Linear(bottleneck_dim, flat), nn.ReLU(inplace=True))
+        else:
+            cells = self.final_size ** 2
+            assert bottleneck_dim % cells == 0, f"bottleneck_dim must be a multiple of {cells}"
+            self.latent_ch = bottleneck_dim // cells
+            self.to_latent = nn.Conv2d(self.final_ch, self.latent_ch, 1)
+            self.from_latent = nn.Sequential(nn.Conv2d(self.latent_ch, self.final_ch, 1), nn.ReLU(inplace=True))
 
         # ---- decoder ----
         dec, rev = [], list(reversed(chans))
@@ -69,7 +93,8 @@ class UDAE(nn.Module):
 
     def decode(self, z):
         h = self.from_latent(self.latent_dropout(z))
-        h = h.view(-1, self.final_ch, self.final_size, self.final_size)
+        if self.latent_type == "vector":
+            h = h.view(-1, self.final_ch, self.final_size, self.final_size)
         return torch.sigmoid(self.out_conv(self.decoder(h)))
 
     def forward(self, x):

@@ -65,3 +65,36 @@ def test_metrics():
     assert torch.allclose(ssim_per_image(x, x), torch.ones(3), atol=1e-4)
     assert objective(40.0, 1.0) == 1.0
     assert count_params(UDAE(8, 64)) > 0
+
+
+def test_spatial_latent_variant():
+    m = UDAE(base_channels=8, bottleneck_dim=1024, dropout=0.1, latent="spatial")
+    x = torch.rand(2, 3, 128, 128)
+    z = m.encode(x)
+    assert z.shape == (2, 16, 8, 8) and z[0].numel() == 1024  # same 1024 latent values as the vector model
+    y = m(x)
+    assert y.shape == x.shape and y.min() >= 0 and y.max() <= 1
+    m.eval()
+    assert torch.equal(m.decode(z), m.decode(z.clone()))  # decoder sees only z: no skip connections
+
+
+def test_hflip_flips_clean_target_only():
+    import numpy as np
+    from src.datasets import RuntimeCorruptionDataset
+    imgs = np.random.default_rng(0).integers(0, 255, (4, 128, 128, 3), dtype=np.uint8)
+    ds = RuntimeCorruptionDataset(imgs, [0, 1, 2, 3], corruption="clean", hflip=True)
+    seen = set()
+    for _ in range(40):
+        xc, x, _ = ds[0]
+        flipped = not torch.equal(x, torch.from_numpy(imgs[0]).permute(2, 0, 1).float() / 255)
+        assert torch.equal(xc, x)  # clean condition: input equals target, flipped or not
+        seen.add(flipped)
+    assert seen == {True, False}
+
+
+def test_spatial_latent_16x16_grid():
+    m = UDAE(base_channels=8, bottleneck_dim=1024, latent="spatial", latent_size=16)
+    x = torch.rand(2, 3, 128, 128)
+    z = m.encode(x)
+    assert z.shape == (2, 4, 16, 16) and z[0].numel() == 1024
+    assert m(x).shape == x.shape

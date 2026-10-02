@@ -36,13 +36,14 @@ DEFAULTS = dict(
     # data
     root="data", num_workers=2,
     # model
-    base_channels=64, bottleneck_dim=256, dropout=0.1,
+    base_channels=64, bottleneck_dim=256, dropout=0.1, latent="vector", latent_size=8,
     # optimisation
     lr=1e-3, weight_decay=1e-4, batch_size=32, epochs=40, alpha=0.8, amp=True,
     patience=10,            # early stopping on the val objective
     # bookkeeping
     seed=42, run_name="baseline", experiment="task1_udae", sample_every=5,
     use_mlflow=True, save_checkpoints=True, resume=True,
+    hflip=False,            # random horizontal flip of the clean image before corruption
 )
 
 
@@ -109,7 +110,7 @@ def train(cfg, trial=None):
 
     # ---- data ----
     trainval, _test, split = load_arrays(root / "processed")  # test array is loaded but never used here
-    train_ds = RuntimeCorruptionDataset(trainval, split["train_idx"], seed=cfg["seed"])
+    train_ds = RuntimeCorruptionDataset(trainval, split["train_idx"], seed=cfg["seed"], hflip=cfg["hflip"])
     val_ds = ManifestDataset(trainval, root / "manifests" / "val_manifest.json")
     nw = cfg["num_workers"]
     train_loader = DataLoader(train_ds, batch_size=cfg["batch_size"], shuffle=True, drop_last=True,
@@ -117,7 +118,8 @@ def train(cfg, trial=None):
                               persistent_workers=nw > 0)
 
     # ---- model / optimiser ----
-    model = UDAE(cfg["base_channels"], cfg["bottleneck_dim"], cfg["dropout"]).to(device)
+    model = UDAE(cfg["base_channels"], cfg["bottleneck_dim"], cfg["dropout"], latent=cfg["latent"],
+                 latent_size=cfg["latent_size"]).to(device)
     criterion = L1SSIMLoss(cfg["alpha"])
     opt = torch.optim.AdamW(model.parameters(), lr=cfg["lr"], weight_decay=cfg["weight_decay"])
     steps = cfg["epochs"] * len(train_loader)

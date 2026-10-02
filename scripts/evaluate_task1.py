@@ -37,7 +37,8 @@ NAMES = {"clean": "Clean", "salt_pepper": "Salt-and-pepper", "blur": "Gaussian b
 def load_model(ckpt_path, device):
     ck = torch.load(ckpt_path, map_location=device)
     c = ck["cfg"]
-    model = UDAE(c["base_channels"], c["bottleneck_dim"], c["dropout"]).to(device)
+    model = UDAE(c["base_channels"], c["bottleneck_dim"], c["dropout"], latent=c.get("latent", "vector"),
+                 latent_size=c.get("latent_size", 8)).to(device)
     model.load_state_dict(ck["model"])
     return model.eval(), c, ck.get("epoch")
 
@@ -163,10 +164,13 @@ def main():
     fig.savefig(out / "examples_12.png", dpi=130)
 
     # ---------- 4 failure cases ----------
-    fails = []
+    fails, used = [], set()  # worst-SSIM entry per corruption type, each from a DIFFERENT image
     for c in ("occlusion", "blur", "salt_pepper", "clean"):
-        cand = [i for i in range(len(ds)) if ds.entry(i)["corruption"] == c]
-        fails.append(min(cand, key=lambda i: rows[i]["ssim"]))
+        cand = [i for i in range(len(ds)) if ds.entry(i)["corruption"] == c
+                and ds.entry(i)["image_idx"] not in used]
+        i = min(cand, key=lambda i: rows[i]["ssim"])
+        fails.append(i)
+        used.add(ds.entry(i)["image_idx"])
     x, xc, y = run_examples(model, ds, fails, device, amp)
     titles = [f"{ds.entry(i)['corruption']}/{ds.entry(i)['severity']} img{ds.entry(i)['image_idx']}  "
               f"SSIM {rows[i]['ssim']:.2f}" for i in fails]

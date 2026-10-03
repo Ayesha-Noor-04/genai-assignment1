@@ -1,0 +1,36 @@
+seed: 42
+
+data:
+  processed_dir: /content/drive/MyDrive/genai_a1/processed
+  manifests_dir: /content/drive/MyDrive/genai_a1/manifests
+
+task2:
+  classifier:
+    channels: small
+    dropout: 0.21350474160801508
+    checkpoint: /content/drive/MyDrive/genai_a1/task2/checkpoints/classifier.pt
+
+  specialists:
+    channels: [64, 128, 256, 512]
+    bottleneck: 256
+    checkpoints:
+      salt_pepper: /content/drive/MyDrive/genai_a1/task2/checkpoints/salt_pepper.pt
+      blur: /content/drive/MyDrive/genai_a1/task2/checkpoints/blur.pt
+      occlusion: /content/drive/MyDrive/genai_a1/task2/checkpoints/occlusion.pt
+
+model:
+  temperature: 1.0
+
+training:
+  alpha: 0.8
+  lam_c: 0.1
+  lam_b: 0.01
+  warmup_epochs: 2
+  joint_epochs: 5
+  lr: 0.0001
+  batch_size: 64
+
+output:
+  checkpoint_dir: /content/drive/MyDrive/genai_a1/task3/checkpoints
+  results_dir: /content/drive/MyDrive/genai_a1/task3/results
+  figures_dir: /content/drive/MyDrive/genai_a1/task3/figures

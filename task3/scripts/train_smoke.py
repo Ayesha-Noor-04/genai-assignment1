@@ -1,6 +1,7 @@
 import json
 import sys
 
+import numpy as np
 import torch
 import yaml
 
@@ -9,7 +10,6 @@ sys.path.insert(0, "/content/genai-assignment1")
 from task3.src.train import load_task2_models
 from task3.src.train_loop import (
     MoEDataset,
-    set_experts_eval,
     freeze_experts,
     unfreeze_experts,
     train_epoch,
@@ -17,6 +17,7 @@ from task3.src.train_loop import (
     save_checkpoint,
 )
 
+from src import corruptions as C
 from torch.utils.data import DataLoader
 
 
@@ -31,11 +32,11 @@ def main():
     processed_dir = cfg["data"]["processed_dir"]
     manifests_dir = cfg["data"]["manifests_dir"]
 
-    images = __import__("numpy").load(
+    images = np.load(
         processed_dir + "/trainval_128.npy"
     )
 
-    labels = __import__("numpy").load(
+    labels = np.load(
         processed_dir + "/labels_trainval.npy"
     )
 
@@ -46,6 +47,8 @@ def main():
         val_manifest = json.load(f)
 
     train_entries = []
+
+    rng = np.random.default_rng(42)
 
     for i in range(len(images)):
         label = int(labels[i])
@@ -59,14 +62,23 @@ def main():
         else:
             corruption = "occlusion"
 
+        if corruption == "clean":
+            params = {}
+            seed = 42 + i
+        else:
+            name, params, seed = C.sample_corruption(
+                rng,
+                corruption,
+            )
+
         train_entries.append(
             {
                 "image_idx": i,
                 "corruption": corruption,
                 "label": label,
-                "severity": "medium",
-                "params": {},
-                "seed": 42 + i,
+                "severity": "train",
+                "params": params,
+                "seed": seed,
             }
         )
 
@@ -123,7 +135,9 @@ def main():
 
     print("WARM-UP")
 
-    for epoch in range(cfg["training"]["warmup_epochs"]):
+    for epoch in range(
+        cfg["training"]["warmup_epochs"]
+    ):
         train_metrics = train_epoch(
             model,
             train_loader,
@@ -173,7 +187,9 @@ def main():
         + "/smoke_best.pt"
     )
 
-    for epoch in range(cfg["training"]["joint_epochs"]):
+    for epoch in range(
+        cfg["training"]["joint_epochs"]
+    ):
         train_metrics = train_epoch(
             model,
             train_loader,

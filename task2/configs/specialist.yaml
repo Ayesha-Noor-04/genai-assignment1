@@ -12,7 +12,7 @@ training:
   batch_size: 32
   alpha: 0.8
   weight_decay: 0.0001
-  epochs: 30
+  epochs: 10
 
 output:
   checkpoint_dir: /content/drive/MyDrive/genai_a1/task2/checkpoints

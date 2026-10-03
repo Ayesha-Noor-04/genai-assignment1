@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import json
 
 import numpy as np
 import optuna
@@ -19,31 +20,34 @@ def objective(trial, config, corruption):
         "cuda" if torch.cuda.is_available() else "cpu"
     )
 
+    processed_dir = config["data"]["processed_dir"]
+
     trainval = np.load(
         os.path.join(
-            config["data"]["processed_dir"],
+            processed_dir,
             "trainval_128.npy",
         )
     )
 
-    split = np.load(
+    with open(
         os.path.join(
-            config["data"]["processed_dir"],
+            processed_dir,
             "split.json",
         ),
-        allow_pickle=True,
-    ).item()
+        "r",
+    ) as f:
+        split = json.load(f)
 
     train_dataset = RuntimeCorruptionDataset(
         trainval,
-        split["train_indices"],
+        split["train_idx"],
         seed=config["seed"],
         corruption=corruption,
     )
 
     val_dataset = RuntimeCorruptionDataset(
         trainval,
-        split["val_indices"],
+        split["val_idx"],
         seed=config["seed"] + 1,
         corruption=corruption,
     )

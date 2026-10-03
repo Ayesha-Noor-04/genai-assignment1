@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import json
 
 import mlflow
 import numpy as np
@@ -16,13 +17,11 @@ from task2.src.dataset import BalancedBatchSampler, ClassifierDataset
 
 def load_data(processed_dir):
     trainval = np.load(os.path.join(processed_dir, "trainval_128.npy"))
-    split = np.load(
-        os.path.join(processed_dir, "split.json"),
-        allow_pickle=True,
-    ).item()
+    with open(os.path.join(processed_dir, "split.json"), "r") as f:
+        split = json.load(f)
 
-    train_indices = split["train_indices"]
-    val_indices = split["val_indices"]
+    train_indices = split["train_idx"]
+    val_indices = split["val_idx"]
 
     return trainval, train_indices, val_indices
 

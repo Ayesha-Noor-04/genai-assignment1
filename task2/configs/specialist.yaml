@@ -16,3 +16,9 @@ training:
 
 output:
   checkpoint_dir: /content/drive/MyDrive/genai_a1/task2/checkpoints
+
+optuna:
+  storage: sqlite:////content/drive/MyDrive/genai_a1/optuna.db
+  study_name: task2_specialists
+  trials: 20
+  epochs: 8

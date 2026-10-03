@@ -1,0 +1,27 @@
+seed: 42
+
+data:
+  processed_dir: /content/drive/MyDrive/genai_a1/processed
+
+model:
+  channels: medium
+  dropout: 0.2
+
+training:
+  lr: 0.001
+  batch_size: 32
+  weight_decay: 0.0001
+  epochs: 30
+
+mlflow:
+  tracking_uri: sqlite:////content/drive/MyDrive/genai_a1/mlflow.db
+  experiment: task2_classifier
+
+output:
+  checkpoint_dir: /content/drive/MyDrive/genai_a1/task2/checkpoints
+
+optuna:
+  storage: sqlite:////content/drive/MyDrive/genai_a1/optuna.db
+  study_name: task2_classifier
+  trials: 20
+  epochs: 8

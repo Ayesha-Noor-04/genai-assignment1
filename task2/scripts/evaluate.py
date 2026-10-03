@@ -58,8 +58,15 @@ def main():
 
     entries = load_manifest(manifest_path)
 
+    test_arrays = np.load(
+        os.path.join(
+            config["data"]["test_arrays"],
+            "test_128.npy",
+        )
+    )
+
     dataset = ManifestDataset(
-        config["data"]["test_arrays"],
+        test_arrays,
         entries,
     )
 

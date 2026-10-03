@@ -1,6 +1,8 @@
+
 from __future__ import annotations
 
 import argparse
+import json
 import os
 
 import numpy as np
@@ -13,36 +15,69 @@ from task2.src.losses import L1SSIMLoss
 from task2.src.specialists import SpecialistAutoencoder
 
 
+BEST_PARAMS = {
+    "salt_pepper": {
+        "batch_size": 64,
+        "channels": (64, 128, 256, 512),
+        "bottleneck": 256,
+        "lr": 0.00021899358780305865,
+        "alpha": 0.9480757313636454,
+    },
+    "blur": {
+        "batch_size": 32,
+        "channels": (64, 128, 256, 512),
+        "bottleneck": 512,
+        "lr": 0.00018948657703433632,
+        "alpha": 0.9365441078282344,
+    },
+    "occlusion": {
+        "batch_size": 16,
+        "channels": (64, 128, 256, 512),
+        "bottleneck": 128,
+        "lr": 0.000032187933903320205,
+        "alpha": 0.9483476589754145,
+    },
+}
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--corruption", required=True)
     args = parser.parse_args()
 
+    if args.corruption not in BEST_PARAMS:
+        raise ValueError(
+            f"Unknown corruption: {args.corruption}. "
+            f"Expected one of: {list(BEST_PARAMS.keys())}"
+        )
+
     with open(args.config, "r") as f:
         config = yaml.safe_load(f)
+
+    params = BEST_PARAMS[args.corruption]
 
     device = torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )
 
+    processed_dir = config["data"]["processed_dir"]
+
     trainval = np.load(
         os.path.join(
-            config["data"]["processed_dir"],
+            processed_dir,
             "trainval_128.npy",
         )
     )
 
-    split = np.load(
-        os.path.join(
-            config["data"]["processed_dir"],
-            "split.json",
-        ),
-        allow_pickle=True,
-    ).item()
+    with open(
+        os.path.join(processed_dir, "split.json"),
+        "r",
+    ) as f:
+        split = json.load(f)
 
-    train_indices = split["train_indices"]
-    val_indices = split["val_indices"]
+    train_indices = split["train_idx"]
+    val_indices = split["val_idx"]
 
     train_dataset = RuntimeCorruptionDataset(
         trainval,
@@ -60,32 +95,41 @@ def main():
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=config["training"]["batch_size"],
+        batch_size=params["batch_size"],
         shuffle=True,
         num_workers=0,
     )
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=config["training"]["batch_size"],
+        batch_size=params["batch_size"],
         shuffle=False,
         num_workers=0,
     )
 
     model = SpecialistAutoencoder(
-        channels=tuple(config["model"]["channels"]),
-        bottleneck=config["model"]["bottleneck"],
+        channels=params["channels"],
+        bottleneck=params["bottleneck"],
     ).to(device)
 
     criterion = L1SSIMLoss(
-        alpha=config["training"]["alpha"]
+        alpha=params["alpha"]
     )
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=config["training"]["lr"],
+        lr=params["lr"],
         weight_decay=config["training"]["weight_decay"],
     )
+
+    print(f"Training {args.corruption} specialist")
+    print(f"device: {device}")
+    print(f"batch_size: {params['batch_size']}")
+    print(f"channels: {params['channels']}")
+    print(f"bottleneck: {params['bottleneck']}")
+    print(f"lr: {params['lr']}")
+    print(f"alpha: {params['alpha']}")
+    print(f"epochs: {config['training']['epochs']}")
 
     for epoch in range(config["training"]["epochs"]):
         model.train()
@@ -140,13 +184,17 @@ def main():
         exist_ok=True,
     )
 
+    checkpoint_path = os.path.join(
+        config["output"]["checkpoint_dir"],
+        f"{args.corruption}.pt",
+    )
+
     torch.save(
         model.state_dict(),
-        os.path.join(
-            config["output"]["checkpoint_dir"],
-            f"{args.corruption}.pt",
-        ),
+        checkpoint_path,
     )
+
+    print(f"Saved checkpoint: {checkpoint_path}")
 
 
 if __name__ == "__main__":

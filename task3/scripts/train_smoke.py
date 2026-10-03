@@ -36,10 +36,6 @@ def main():
         processed_dir + "/trainval_128.npy"
     )
 
-    labels = np.load(
-        processed_dir + "/labels_trainval.npy"
-    )
-
     with open(
         manifests_dir + "/val_manifest.json",
         "r",
@@ -48,19 +44,16 @@ def main():
 
     train_entries = []
 
+    corruption_labels = np.arange(
+        len(images)
+    ) % 4
+
     rng = np.random.default_rng(42)
+    rng.shuffle(corruption_labels)
 
     for i in range(len(images)):
-        label = int(labels[i])
-
-        if label == 0:
-            corruption = "clean"
-        elif label == 1:
-            corruption = "salt_pepper"
-        elif label == 2:
-            corruption = "blur"
-        else:
-            corruption = "occlusion"
+        label = int(corruption_labels[i])
+        corruption = C.CLASSES[label]
 
         if corruption == "clean":
             params = {}
@@ -121,7 +114,11 @@ def main():
     print("device:", device)
     print("training samples:", len(train_dataset))
     print("validation samples:", len(val_dataset))
-    print()
+
+    print(
+        "training corruption counts:",
+        np.bincount(corruption_labels),
+    )
 
     freeze_experts(model)
 
@@ -133,6 +130,7 @@ def main():
         lr=lr,
     )
 
+    print()
     print("WARM-UP")
 
     for epoch in range(

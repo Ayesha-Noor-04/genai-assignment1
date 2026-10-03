@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 def conv_bn_relu(cin, cout, stride=2):
@@ -48,8 +49,6 @@ class SpecialistAutoencoder(nn.Module):
                 nn.ReLU(inplace=True),
             )
 
-            decoder_channels = channels
-
         elif bottleneck_type == "spatial":
             latent_channels = bottleneck // (
                 spatial_size * spatial_size
@@ -85,44 +84,15 @@ class SpecialistAutoencoder(nn.Module):
                 nn.ReLU(inplace=True),
             )
 
-            decoder_channels = channels
-
         else:
             raise ValueError(
                 "bottleneck_type must be 'vector' or 'spatial'"
             )
 
         decoder = []
+        reversed_channels = list(channels[::-1])
 
-        if bottleneck_type == "spatial":
-            current_size = spatial_size
-
-            if current_size > 8:
-                decoder.append(
-                    nn.Sequential(
-                        nn.Upsample(
-                            size=(8, 8),
-                            mode="nearest",
-                        ),
-                        nn.Conv2d(
-                            channels[-1],
-                            channels[-1],
-                            3,
-                            padding=1,
-                        ),
-                        nn.BatchNorm2d(channels[-1]),
-                        nn.ReLU(inplace=True),
-                    )
-                )
-
-        reversed_channels = list(decoder_channels[::-1])
-
-        start_index = 0
-
-        if bottleneck_type == "spatial" and spatial_size > 8:
-            start_index = 1
-
-        for i in range(start_index, len(reversed_channels) - 1):
+        for i in range(len(reversed_channels) - 1):
             decoder.append(
                 nn.Sequential(
                     nn.Upsample(
@@ -165,6 +135,7 @@ class SpecialistAutoencoder(nn.Module):
 
         if self.bottleneck_type == "vector":
             z = self.to_bottleneck(h)
+
             h = self.from_bottleneck(z)
 
             h = h.view(
@@ -178,15 +149,19 @@ class SpecialistAutoencoder(nn.Module):
             z = self.to_bottleneck(h)
 
             if self.spatial_size != 8:
-                z = nn.functional.interpolate(
+                z = F.interpolate(
                     z,
-                    size=(
-                        self.spatial_size,
-                        self.spatial_size,
-                    ),
+                    size=(self.spatial_size, self.spatial_size),
                     mode="nearest",
                 )
 
             h = self.from_bottleneck(z)
+
+            if self.spatial_size != 8:
+                h = F.interpolate(
+                    h,
+                    size=(8, 8),
+                    mode="nearest",
+                )
 
         return self.decoder(h)

@@ -15,6 +15,22 @@ from task2.src.classifier import CorruptionClassifier
 from task2.src.specialists import SpecialistAutoencoder
 
 
+SPECIALIST_PARAMS = {
+    "salt_pepper": {
+        "channels": (64, 128, 256, 512),
+        "bottleneck": 256,
+    },
+    "blur": {
+        "channels": (64, 128, 256, 512),
+        "bottleneck": 512,
+    },
+    "occlusion": {
+        "channels": (64, 128, 256, 512),
+        "bottleneck": 128,
+    },
+}
+
+
 def load_model(model, path, device):
     state = torch.load(
         path,
@@ -65,11 +81,11 @@ def main():
         "blur",
         "occlusion",
     ]:
+        params = SPECIALIST_PARAMS[corruption]
+
         model = SpecialistAutoencoder(
-            channels=tuple(
-                config["specialist"]["channels"]
-            ),
-            bottleneck=config["specialist"]["bottleneck"],
+            channels=params["channels"],
+            bottleneck=params["bottleneck"],
         )
 
         load_model(
@@ -79,6 +95,10 @@ def main():
         )
 
         specialists[corruption] = model
+
+    print(f"device: {device}")
+    print(f"test records: {len(dataset)}")
+    print("loaded classifier and all specialists")
 
     results = []
 
@@ -90,19 +110,18 @@ def main():
 
         with torch.no_grad():
             logits = classifier(x)
-            predicted_label = int(logits.argmax(dim=1).item())
+            predicted_label = int(
+                logits.argmax(dim=1).item()
+            )
 
         true_corruption = entries[i]["corruption"]
         severity = entries[i]["severity"]
 
         if true_label == 0:
-            true_model = None
+            oracle_pred = x
         else:
             true_model = specialists[true_corruption]
 
-        if true_model is None:
-            oracle_pred = x
-        else:
             with torch.no_grad():
                 oracle_pred = true_model(x)
 
@@ -163,6 +182,11 @@ def main():
             "predicted_psnr": routed_psnr,
         })
 
+        if (i + 1) % 1000 == 0:
+            print(
+                f"processed {i + 1}/{len(dataset)}"
+            )
+
     os.makedirs(
         config["output"]["results_dir"],
         exist_ok=True,
@@ -182,7 +206,9 @@ def main():
         writer.writeheader()
         writer.writerows(results)
 
-    print(f"saved {len(results)} results to {output_path}")
+    print(
+        f"saved {len(results)} results to {output_path}"
+    )
 
 
 if __name__ == "__main__":

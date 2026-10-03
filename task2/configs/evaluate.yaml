@@ -1,15 +1,17 @@
 data:
   test_arrays: /content/drive/MyDrive/genai_a1/processed
+
   test_manifest: /content/drive/MyDrive/genai_a1/manifests/test_manifest.json
 
 classifier:
-  channels: medium
-  dropout: 0.2
+  channels: small
+  dropout: 0.21350474160801508
   checkpoint: /content/drive/MyDrive/genai_a1/task2/checkpoints/classifier.pt
 
 specialist:
-  channels: [32, 64, 128, 256]
+  channels: [64, 128, 256, 512]
   bottleneck: 256
+
   checkpoints:
     salt_pepper: /content/drive/MyDrive/genai_a1/task2/checkpoints/salt_pepper.pt
     blur: /content/drive/MyDrive/genai_a1/task2/checkpoints/blur.pt

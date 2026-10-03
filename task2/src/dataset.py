@@ -6,30 +6,42 @@ from torch.utils.data import Dataset, Sampler
 from src import corruptions as C
 from src.datasets import to_tensor
 
-
 class ClassifierDataset(Dataset):
     def __init__(self, images, indices, seed=42):
         self.images = images
         self.indices = np.asarray(indices)
         self.seed = seed
 
+        self.labels = np.arange(len(self.indices)) % len(C.CLASSES)
+
+        rng = np.random.default_rng(seed)
+        rng.shuffle(self.labels)
+
     def __len__(self):
         return len(self.indices)
 
     def __getitem__(self, i):
         clean = self.images[self.indices[i]]
+        label = int(self.labels[i])
+
+        corruption = C.CLASSES[label]
 
         rng = np.random.default_rng([self.seed, i])
 
-        label = int(rng.integers(0, len(C.CLASSES)))
-        corruption = C.CLASSES[label]
+        name, params, corruption_seed = C.sample_corruption(
+            rng,
+            corruption,
+        )
 
-        name, params, seed = C.sample_corruption(rng, corruption)
-        corrupted = C.apply_corruption(clean, name, params, seed)
+        corrupted = C.apply_corruption(
+            clean,
+            name,
+            params,
+            corruption_seed,
+        )
 
         return to_tensor(corrupted), label
-
-
+    
 class BalancedBatchSampler(Sampler):
     def __init__(self, labels, batch_size, seed=42):
         if batch_size % len(C.CLASSES) != 0:

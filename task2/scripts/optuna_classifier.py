@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import json
 
 import mlflow
 import numpy as np
@@ -27,13 +28,14 @@ def objective(trial, config):
         )
     )
 
-    split = np.load(
-        os.path.join(
-            config["data"]["processed_dir"],
-            "split.json",
-        ),
-        allow_pickle=True,
-    ).item()
+    with open(
+    os.path.join(
+        config["data"]["processed_dir"],
+        "split.json"
+    ),
+    "r"
+    ) as f:
+        split = json.load(f)
 
     train_dataset = ClassifierDataset(
         trainval,

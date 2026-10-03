@@ -1,6 +1,6 @@
 data:
   test_arrays: /content/drive/MyDrive/genai_a1/processed
-  test_manifest: /content/drive/MyDrive/genai_a1/manifests/test.json
+  test_manifest: /content/drive/MyDrive/genai_a1/manifests/test_manifest.json
 
 classifier:
   channels: medium

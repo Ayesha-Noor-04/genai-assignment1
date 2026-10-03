@@ -39,13 +39,13 @@ def objective(trial, config):
 
     train_dataset = ClassifierDataset(
         trainval,
-        split["train_indices"],
+        split["train_idx"],
         seed=config["seed"],
     )
 
     val_dataset = ClassifierDataset(
         trainval,
-        split["val_indices"],
+        split["val_idx"],
         seed=config["seed"] + 1,
     )
 

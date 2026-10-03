@@ -4,13 +4,13 @@ data:
   processed_dir: /content/drive/MyDrive/genai_a1/processed
 
 model:
-  channels: medium
-  dropout: 0.2
+  channels: small
+  dropout: 0.21350474160801508
 
 training:
-  lr: 0.001
-  batch_size: 32
-  weight_decay: 0.0001
+  lr: 0.0002577918930093444
+  batch_size: 64
+  weight_decay: 0.00004227632053737923
   epochs: 30
 
 mlflow:

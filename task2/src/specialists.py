@@ -3,165 +3,78 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-def conv_bn_relu(cin, cout, stride=2):
+def double_conv(cin, cout):
     return nn.Sequential(
-        nn.Conv2d(cin, cout, 3, stride=stride, padding=1),
+        nn.Conv2d(cin, cout, 3, padding=1, bias=False),
+        nn.BatchNorm2d(cout),
+        nn.ReLU(inplace=True),
+        nn.Conv2d(cout, cout, 3, padding=1, bias=False),
         nn.BatchNorm2d(cout),
         nn.ReLU(inplace=True),
     )
 
 
 class SpecialistAutoencoder(nn.Module):
+    """U-Net denoiser/deblurrer/inpainter with a residual output.
+
+    Same constructor signature as the old vector/spatial autoencoder so existing
+    scripts keep working. `bottleneck`, `bottleneck_type` and `spatial_size` are
+    accepted for compatibility but ignored: skip connections make the bottleneck
+    size irrelevant. Input/output: (B,3,128,128) in [0,1].
+    """
+
     def __init__(
         self,
         channels=(32, 64, 128, 256),
         bottleneck=256,
         bottleneck_type="vector",
         spatial_size=8,
+        residual=True,
     ):
         super().__init__()
+        channels = tuple(channels)
+        self.residual = residual
 
-        layers = []
+        self.encoders = nn.ModuleList()
         cin = 3
-
         for c in channels:
-            layers.append(conv_bn_relu(cin, c, stride=2))
+            self.encoders.append(double_conv(cin, c))
             cin = c
 
-        self.encoder = nn.Sequential(*layers)
+        self.mid = double_conv(channels[-1], channels[-1] * 2)
 
-        self.bottleneck_type = bottleneck_type
-        self.spatial_size = spatial_size
+        self.ups = nn.ModuleList()
+        self.decoders = nn.ModuleList()
+        prev = channels[-1] * 2
+        for c in reversed(channels):
+            self.ups.append(nn.ConvTranspose2d(prev, c, 2, stride=2))
+            self.decoders.append(double_conv(c * 2, c))
+            prev = c
 
-        if bottleneck_type == "vector":
-            self.to_bottleneck = nn.Sequential(
-                nn.AdaptiveAvgPool2d(1),
-                nn.Flatten(),
-                nn.Linear(channels[-1], bottleneck),
-                nn.ReLU(inplace=True),
-            )
-
-            self.from_bottleneck = nn.Sequential(
-                nn.Linear(
-                    bottleneck,
-                    channels[-1] * 8 * 8,
-                ),
-                nn.ReLU(inplace=True),
-            )
-
-        elif bottleneck_type == "spatial":
-            latent_channels = bottleneck // (
-                spatial_size * spatial_size
-            )
-
-            if (
-                latent_channels * spatial_size * spatial_size
-                != bottleneck
-            ):
-                raise ValueError(
-                    "bottleneck must be divisible by spatial_size^2"
-                )
-
-            self.to_bottleneck = nn.Sequential(
-                nn.Conv2d(
-                    channels[-1],
-                    latent_channels,
-                    3,
-                    padding=1,
-                ),
-                nn.BatchNorm2d(latent_channels),
-                nn.ReLU(inplace=True),
-            )
-
-            self.from_bottleneck = nn.Sequential(
-                nn.Conv2d(
-                    latent_channels,
-                    channels[-1],
-                    3,
-                    padding=1,
-                ),
-                nn.BatchNorm2d(channels[-1]),
-                nn.ReLU(inplace=True),
-            )
-
-        else:
-            raise ValueError(
-                "bottleneck_type must be 'vector' or 'spatial'"
-            )
-
-        decoder = []
-        reversed_channels = list(channels[::-1])
-
-        for i in range(len(reversed_channels) - 1):
-            decoder.append(
-                nn.Sequential(
-                    nn.Upsample(
-                        scale_factor=2,
-                        mode="nearest",
-                    ),
-                    nn.Conv2d(
-                        reversed_channels[i],
-                        reversed_channels[i + 1],
-                        3,
-                        padding=1,
-                    ),
-                    nn.BatchNorm2d(
-                        reversed_channels[i + 1]
-                    ),
-                    nn.ReLU(inplace=True),
-                )
-            )
-
-        decoder.append(
-            nn.Sequential(
-                nn.Upsample(
-                    scale_factor=2,
-                    mode="nearest",
-                ),
-                nn.Conv2d(
-                    reversed_channels[-1],
-                    3,
-                    3,
-                    padding=1,
-                ),
-                nn.Sigmoid(),
-            )
-        )
-
-        self.decoder = nn.Sequential(*decoder)
+        self.head = nn.Conv2d(channels[0], 3, 1)
+        if residual:
+            # start as identity: output == input, so the model can never begin worse than "do nothing"
+            nn.init.zeros_(self.head.weight)
+            nn.init.zeros_(self.head.bias)
 
     def forward(self, x):
-        h = self.encoder(x)
+        skips = []
+        h = x
+        for enc in self.encoders:
+            h = enc(h)
+            skips.append(h)
+            h = F.max_pool2d(h, 2)
 
-        if self.bottleneck_type == "vector":
-            z = self.to_bottleneck(h)
+        h = self.mid(h)
 
-            h = self.from_bottleneck(z)
+        for up, dec in zip(self.ups, self.decoders):
+            h = up(h)
+            h = dec(torch.cat([h, skips.pop()], dim=1))
 
-            h = h.view(
-                x.size(0),
-                -1,
-                8,
-                8,
-            )
-
-        else:
-            z = self.to_bottleneck(h)
-
-            if self.spatial_size != 8:
-                z = F.interpolate(
-                    z,
-                    size=(self.spatial_size, self.spatial_size),
-                    mode="nearest",
-                )
-
-            h = self.from_bottleneck(z)
-
-            if self.spatial_size != 8:
-                h = F.interpolate(
-                    h,
-                    size=(8, 8),
-                    mode="nearest",
-                )
-
-        return self.decoder(h)
+        y = self.head(h)
+        if self.residual:
+            y = x + y
+            # Clamp only at inference. Clamping in training zeroes the gradient on
+            # saturated (0/1) salt-and-pepper pixels and the model never learns.
+            return y if self.training else y.clamp(0.0, 1.0)
+        return torch.sigmoid(y)

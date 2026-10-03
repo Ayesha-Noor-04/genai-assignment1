@@ -7,7 +7,7 @@ import torch
 import yaml
 from torch.utils.data import DataLoader
 
-from task2.src.datasets import RuntimeCorruptionDataset
+from src.datasets import RuntimeCorruptionDataset
 from task2.src.losses import L1SSIMLoss
 from task2.src.specialists import SpecialistAutoencoder
 

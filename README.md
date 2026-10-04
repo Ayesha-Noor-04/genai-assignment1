@@ -2,6 +2,17 @@
 
 **Author:** Ayesha Noor (i230736)
 
+## Quick start
+
+```bash
+git clone https://github.com/Ayesha-Noor-04/genai-assignment1.git
+cd genai-assignment1
+./scripts/download_models.sh
+docker compose up
+```
+
+Open **http://localhost:8080**
+
 ## Goal
 Train one autoencoder that takes a corrupted 128×128 RGB image and reconstructs the clean original. Corruption types: **clean, salt-and-pepper noise, blur, occlusion**. Quality is measured with **L1, PSNR and SSIM**; training uses an **L1 + SSIM** loss.
 

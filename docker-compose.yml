@@ -1,0 +1,60 @@
+services:
+  backend:
+    image: gena1-backend:latest
+    build:
+      context: ./backend
+    container_name: gena1-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./models:/models:ro
+      - ./backend/samples:/samples:ro
+    environment:
+      - PYTHONUNBUFFERED=1
+      - MODEL_DIR=/models
+      - SAMPLE_DIR=/samples
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=2).status==200 else sys.exit(1)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  frontend:
+    image: gena1-frontend:latest
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: ""
+        VITE_MLFLOW_URL: http://localhost:5000
+    container_name: gena1-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+  # MLflow disabled because macOS AirPlay Receiver occupies port 5000.
+  # To enable: disable AirPlay Receiver in System Settings → General → AirDrop & Handoff,
+  # then uncomment the block below and run `docker compose up` again.
+  #
+  # mlflow:
+  #   image: ghcr.io/mlflow/mlflow:v2.16.2
+  #   container_name: gena1-mlflow
+  #   restart: unless-stopped
+  #   ports:
+  #     - "5000:5000"
+  #   command: >
+  #     mlflow server
+  #     --host 0.0.0.0
+  #     --port 5000
+  #     --backend-store-uri sqlite:////mlflow/mlflow.db
+  #     --default-artifact-root /mlflow/artifacts
+  #   volumes:
+  #     - ./mlruns:/mlflow

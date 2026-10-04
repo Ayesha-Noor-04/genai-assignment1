@@ -53,3 +53,7 @@ task4/outputs/
 # Temporary files
 *.tmp
 *.temp
+
+node_modules/
+
+frontend/dist/

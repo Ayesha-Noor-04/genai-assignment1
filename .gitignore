@@ -1,17 +1,55 @@
-
-data/
-mlruns/
-*.pt
-*.onnx
+# Python
 __pycache__/
+*.py[cod]
 .venv/
-# Task 4 generated outputs
+venv/
+.env
+
+# macOS
+.DS_Store
+
+# Data
+data/
+*/data/
+
+# MLflow
+mlruns/
+*/mlruns/
+
+# Model files
+*.pt
+*.pth
+*.onnx
+*.onnx.data
+*.ckpt
+*.pkl
+
+# Generated outputs
+outputs/
+*/outputs/
+
+# Task 1
+task1/data/
+task1/outputs/
+
+# Task 2
+task2/data/
+task2/outputs/
+
+# Task 3
+task3/data/
+task3/outputs/
+
+# Task 4
+task4/data/
 task4/outputs/
 
-# Task 2 local data and outputs
-task2/data/
-task2/outputs/
+# Logs
+*.log
 
-# Task 2 local data and outputs
-task2/data/
-task2/outputs/
+# Jupyter
+.ipynb_checkpoints/
+
+# Temporary files
+*.tmp
+*.temp

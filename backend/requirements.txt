@@ -1,7 +1,6 @@
 fastapi
 uvicorn[standard]
 python-multipart
-onnx
-onnxruntime
-numpy
 pillow
+numpy
+onnxruntime

@@ -1,26 +1,36 @@
-# Task 4 — FS2K Face Photo to Sketch cGAN
+# Task 4 — TODO: title from the assignment handout (e.g. web app / deployment)
 
-This folder contains the implementation for Task 4 of the GenAI assignment.
+**Author:** Ayesha Noor (i230736)
 
-## Structure
+## Goal
+TODO: one or two sentences from the Task 4 section of the handout.
 
-- `src/dataset.py` — FS2K dataset loading and preprocessing
-- `src/models.py` — conditional GAN models
-- `src/train.py` — training pipeline
-- `src/optuna_search.py` — Optuna hyperparameter search
-- `src/evaluate.py` — evaluation metrics
-- `src/export_onnx.py` — ONNX export and verification
-- `data/` — local dataset files; not committed to Git
-- `outputs/` — local generated outputs; not committed to Git
+## Overview
+TODO: what the system does end to end (inputs, models used, outputs).
 
-## Dataset
+## Run locally
+```bash
+git clone https://github.com/Ayesha-Noor-04/genai-assignment1.git
+cd genai-assignment1
+pip install -r requirements.txt
+# TODO: command that starts the web app, e.g. python app.py  /  streamlit run app.py
+```
+Then open `http://localhost:<port>`.
 
-FS2K is used for paired face-photo to face-sketch translation.
+## Run with Docker
+```bash
+docker build -t genai-a1 .
+docker run -p <port>:<port> genai-a1
+```
+Models (`*.onnx` and their `*.onnx.data` files) must be inside the image or mounted at `<path>`.
 
-## Requirements
+## Models used
+Task 2 pipeline: classifier + salt-pepper / blur / occlusion specialists, served with ONNX Runtime.
 
-Install the dependencies from `requirements.txt`.
+## Links
+- Deployed app: TODO
+- Report: TODO
+- Repository: https://github.com/Ayesha-Noor-04/genai-assignment1
 
-## Status
-
-Implementation in progress.
+## Notes
+TODO
